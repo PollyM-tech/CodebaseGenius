@@ -1,0 +1,9 @@
+byllm
+jac-cloud
+python-dotenv
+GitPython
+tree_sitter
+tree_sitter_languages
+pygments
+markdownify
+google-generativeai
