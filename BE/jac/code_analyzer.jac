@@ -22,58 +22,86 @@ node CodeGraph {
 node CodeAnalyzer(Toolbox) {
     def build_ccg(root_path: str, repo_name: str) -> CodeGraph {
         graph = CodeGraph(repo_name=repo_name, root_path=root_path);
-        files = collect_source_files(root_path);
+        root ++> graph;
 
+        files = collect_source_files(root_path);
         for f in files {
+            fnode = FileNode(path=f);
+            graph ++> fnode;
+
             info = extract_symbols_and_calls(f);
-            fnode = FileNode(path=f); graph ++> fnode;
 
             for cname in info["classes"] {
                 c = ClassNode(name=cname);
-                fnode ++> c;
-                fnode -[DEFINES]-> c;
-                }
-
-
-
-            for fname in info["functions"] { 
-                fn = FuncNode(name=fname); fnode ++> fn; fnode -:DEFINES-> fn; 
+                graph ++> c;
+                fnode +>:DEFINES:+> c;
             }
 
-            for call in info["calls"] { 
-                callee = FuncNode(name=call); graph ++> callee; fnode -:CALLS-> callee; 
+            for fname in info["functions"] {
+                fn = FuncNode(name=fname);
+                graph ++> fn;
+                fnode +>:DEFINES:+> fn;
+            }
+
+            for call in info["calls"] {
+                existing = [];
+                for cand in [graph --> (`?FuncNode)] {
+                    if cand.name == call {
+                        existing = existing + [cand];
+                    }
+                }
+                callee = existing and existing[0] or FuncNode(name=call);
+                if not existing { graph ++> callee; }
+                fnode +>:CALLS:+> callee;
             }
         }
         return graph;
     }
 
     def query_calls(func_name: str, repo_name: str) -> list[str] {
-        graphs = [root --> (`?CodeGraph) where .repo_name == repo_name];
-        if not graphs { return []; }
-        g = graphs[0];
+        graphs = [root --> (`?CodeGraph)];
+        g = null;
+        for gg in graphs { if gg.repo_name == repo_name { g = gg; break; } }
+        if not g { return []; }
 
         result = [];
         for f in [g --> (`?FileNode)] {
-            if [f -:CALLS-> (`?FuncNode) where .name == func_name] {
-                result = result + [f.path];
+            matches = false;
+            for callee in [f ->:CALLS:->] {
+                if callee.name == func_name { matches = true; break; }
             }
+            if matches { result = result + [f.path]; }
         }
         return result;
     }
 
     def query_defined_in(func_name: str, repo_name: str) -> list[str] {
-        graphs = [root --> (`?CodeGraph) where .repo_name == repo_name];
-        if not graphs { return []; }
-        g = graphs[0];
+        graphs = [root --> (`?CodeGraph)];
+        g = null;
+        for gg in graphs { if gg.repo_name == repo_name { g = gg; break; } }
+        if not g { return []; }
 
         result = [];
         for f in [g --> (`?FileNode)] {
-            if [f -:DEFINES-> (`?FuncNode) where .name == func_name] {
-                result = result + [f.path];
+            found = false;
+            for sym in [f ->:DEFINES:->] {
+                if sym.name == func_name { found = true; break; }
             }
+            if found { result = result + [f.path]; }
         }
         return result;
     }
 
-    def route_and_run(utterance: str, history: str) -> str by llm();
+    def route_and_run(utterance: str, history: str) -> str by llm(
+        method="ReAct",
+        tools=([self.build_ccg, self.query_calls, self.query_defined_in])
+    );
 }
+
+sem CodeAnalyzer.route_and_run = """
+You are a Code Analyzer.
+- If the user asks to build/parse, call build_ccg(root_path, repo_name).
+- If the user asks 'who calls <X>', call query_calls(<X>, repo_name).
+- If the user asks 'where is <X> defined', call query_defined_in(<X>, repo_name).
+Reply with a short plain-text summary. Select and execute only one tool.
+""";

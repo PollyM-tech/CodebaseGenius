@@ -1,10 +1,8 @@
 include core;
-
+import from byllm.llm { Model }
 import from py_helpers.git_ops { validate_url, clone_repo }
 import from py_helpers.fs_map { generate_file_tree, to_markdown_tree }
 import from py_helpers.readme { find_readme, read_text_safe }
-import from byllm.llm { Model }
-import from os { getenv }
 
 glob llm = Model(model_name="gpt-4o", verbose=False);
 
@@ -18,41 +16,49 @@ node RepoInfo {
 }
 
 node RepoMapper(Toolbox) {
-    # 1) Clone + capture basic info
     def clone_and_map(url: str) -> RepoInfo {
         ok = validate_url(url);
         assert ok, "Invalid GitHub URL";
-        res = clone_repo(url);              # expected: (local_path, repo_name)
+        res = clone_repo(url);
         local_path = res[0];
         repo_name = res[1];
         return RepoInfo(url=url, local_path=local_path, repo_name=repo_name);
     }
 
-    # 2) Build high-level file tree (ignores .git, node_modules in helper)
     def build_tree(repo: RepoInfo) -> RepoInfo {
         t = generate_file_tree(repo.local_path);
         repo.tree_md = to_markdown_tree(t);
         return repo;
     }
 
-    # 3) Optional LLM summarizer for README (kept off by default to save tokens)
     def readme_summary_raw(text: str) -> str by llm();
 
-    # 4) Find & read README.* and (optionally) summarize
     def summarise_readme(repo: RepoInfo) -> RepoInfo {
         p = find_readme(repo.local_path);
         if p {
             txt = read_text_safe(p);
             repo.readme_text = txt;
-            # Uncomment to auto-summarize via LLM:
-            # repo.readme_summary = self.readme_summary_raw(txt);
         }
         return repo;
     }
 
-    # 5) Single ReAct entry: LLM may call clone -> tree -> readme
-    def route_and_run(url: str) -> RepoInfo by llm(
+    def route_and_run(utterance: str, history: str) -> str by llm(
         method="ReAct",
         tools=([self.clone_and_map, self.build_tree, self.summarise_readme])
     );
 }
+
+sem RepoMapper.route_and_run = """
+Extract a single GitHub URL from the user's utterance.
+Then:
+1) clone_and_map(url)
+2) Optionally build_tree(repo) for a concise Markdown tree
+3) Optionally summarise_readme(repo)
+Return a short plain-text summary like:
+- Repo: <repo_name>
+- Local: <local_path>
+- Tree (first 15 lines):
+<tree_md_snippet_or_None>
+- README: found|missing
+Select and execute only one tool per step.
+""";

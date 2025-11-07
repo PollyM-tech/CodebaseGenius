@@ -12,16 +12,26 @@ node Session {
     }
 
     def get_history -> str {
-        return "\n".join(self.history[-12:]);
+        return "\n".join(self.history[-20:]);
     }
 }
 
 node Toolbox {
-
     def route_and_run(utterance: str, history: str) -> str abs;
+
+    can execute with agent entry {
+        session = visitor.session;
+        response = self.route_and_run(visitor.utterance, session.get_history());
+        session.add_history("user: " + visitor.utterance + "\nai: " + response);
+        report {
+            "session_id": jid(visitor.session),
+            "response": response
+        };
+    }
 }
 
-walker base_agent {
+walker agent {
+    has session: Session = None;
     has session_id: str = "";
 
     obj __specs__ { static has auth: bool = False; }
@@ -40,12 +50,16 @@ walker base_agent {
             return &(self.session_id);
         }
     }
+
+    def _attach_session() {
+        self.session = self._ensure_session();
+    }
 }
 
 walker get_sessions {
     obj __specs__ { static has auth: bool = False; }
 
-    can get_sessions with `root entry {
+    can get_sessions with root entry {
         mems = [root --> (`?Memory)];
         if not mems {
             report [];
@@ -61,4 +75,3 @@ walker get_sessions {
 }
 
 with entry { load_dotenv(); }
-
