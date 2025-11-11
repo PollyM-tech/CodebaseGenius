@@ -7,3 +7,6 @@ tree_sitter_languages
 pygments
 markdownify
 google-generativeai
+streamlit
+markdown
+jac
