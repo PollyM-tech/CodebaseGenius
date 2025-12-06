@@ -1,0 +1,16 @@
+jaseci
+jaclang
+byllm
+python-dotenv
+litellm
+google-generativeai
+GitPython
+tree-sitter
+pygments
+pathspec
+requests
+tqdm
+pandas
+streamlit
+altair
+graphviz

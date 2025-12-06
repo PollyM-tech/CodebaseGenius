@@ -1,14 +1,11 @@
 import from dotenv { load_dotenv }
+import sys;
 import from utils { get_current_datetime }
-import from byllm.llm { Model }
-import os;
-
-glob llm = Model(model_name="gemini/gemini-1.5-flash", verbose=False);
 
 node Memory {}
 
 node Session {
-    has history: list = [];
+    has history: list[str] = [];
     has created_at: str = get_current_datetime();
 
     def add_history(entry: str) {
@@ -16,7 +13,7 @@ node Session {
     }
 
     def get_history -> str {
-        return "\n".join(self.history[-20:]);
+        return "\n".join(self.history[-10:]);
     }
 }
 
@@ -25,81 +22,115 @@ node Toolbox {
 
     can execute with agent entry {
         session = visitor.session;
+        if not session {
+            report {
+                "session_id": "",
+                "response": "Internal error: no session found."
+            };
+            return;
+        }
+
         response = self.route_and_run(visitor.utterance, session.get_history());
-        session.add_history("user: " + visitor.utterance + "\nai: " + response);
+
+        session.add_history(
+            "user: " + visitor.utterance + "\nai: " + response
+        );
 
         report {
-            "session_id": jid(visitor.session),
+            "session_id": jid(session),
             "response": response
         };
     }
 }
 
-def _get_node_class(class_name: str) {
-    if class_name == "RepoMapper" { return RepoMapper; }
-    if class_name == "CodeAnalyzer" { return CodeAnalyzer; }
-    if class_name == "DocGenie" { return DocGenie; }
-    if class_name == "GeneralChat" { return GeneralChat; }
-    if class_name == "CodeGenius" { return CodeGenius; }
-    return None;
-}
-
-def _ensure_outputs_tree() {
-    folders = [
-        "outputs",
-        "outputs/repos",
-        "outputs/trees",
-        "outputs/readme",
-        "outputs/ccg",
-        "outputs/diagrams",
-        "outputs/docs",
-    ];
-    for d in folders { os.makedirs(d, exist_ok=True); }
-}
-
 walker agent {
+    has session: Session;
     has utterance: str = "";
     has session_id: str = "";
 
-    obj __specs__ { static has auth: bool = False; }
+    obj __specs__ {
+        static has auth: bool = False;
+    }
 
-    def get_node_class(class_name: str) { return _get_node_class(class_name); }
+    def get_node_class(class_name: str) {
+        main_mod = sys.modules.get("__main__");
+        if main_mod and hasattr(main_mod, class_name) {
+            return getattr(main_mod, class_name);
+        }
+
+        for (mod_name, mod) in sys.modules.items() {
+            if mod and hasattr(mod, class_name) {
+                return getattr(mod, class_name);
+            }
+        }
+        return None;
+    }
+
     def route_to_node(utterance: str, history: str) -> str abs;
 
     can execute with `root entry {
         memory_list = [root --> (`?Memory)];
-        if not memory_list { memory_list = root ++> Memory(); }
+        if not memory_list {
+            memory_list = root ++> Memory();
+        }
         memory = memory_list[0];
 
-        if not self.session_id { session_list = memory ++> Session(); self.session = session_list[0]; }
-        else { self.session = &(self.session_id); }
+        if not self.session_id {
+            session_list = memory ++> Session();
+            self.session = session_list[0];
+        } else {
+            self.session = &(self.session_id);
+            if not self.session {
+                session_list = memory ++> Session();
+                self.session = session_list[0];
+            }
+        }
 
-        routed = self.route_to_node(self.utterance, self.session.get_history());
-        node_cls = self.get_node_class(routed);
-        if not node_cls { report { "response": "Unknown node: " + routed }; disengage; }
+        routed_class_name = self.route_to_node(
+            self.utterance,
+            self.session.get_history()
+        );
 
-        inst = node_cls();
-        linked = here ++> inst;
-        visit linked;
+        node_cls = self.get_node_class(routed_class_name);
+        if not node_cls {
+            print("Failed to get node class:", routed_class_name);
+            report {
+                "session_id": jid(self.session),
+                "response": "Internal error: could not route to agent '" +
+                            routed_class_name + "'."
+            };
+            return;
+        }
+
+        visit [-->(`?node_cls)] else {
+            attached_routed_node = here ++> node_cls();
+            visit attached_routed_node;
+        }
     }
 }
 
 walker get_all_sessions {
-    obj __specs__ { static has auth: bool = False; }
+    obj __specs__ {
+        static has auth: bool = False;
+    }
 
     can get_all_sessions with `root entry {
         memory_list = [here --> (`?Memory)];
-        if not memory_list { report "No sessions found."; disengage; }
-        memory = memory_list[0];
-        sessions = [memory --> (`?Session)];
+        if not memory_list {
+            report "No sessions found.";
+            disengage;
+        }
 
-        report [
-            { "id": jid(s), "created_at": s.created_at } for s in sessions
-        ];
+        memory = memory_list[0];
+        session_list = [memory --> (`?Session)];
+
+        report [{
+            "id": jid(session),
+            "created_at": session.created_at
+        } for session in session_list];
     }
 }
 
 with entry {
     load_dotenv();
-    _ensure_outputs_tree();
 }
