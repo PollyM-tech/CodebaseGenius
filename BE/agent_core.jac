@@ -44,7 +44,7 @@ node Toolbox {
 }
 
 walker agent {
-    has session: Session;
+    has session: Session | None = None;
     has utterance: str = "";
     has session_id: str = "";
 
@@ -108,6 +108,7 @@ walker agent {
         }
     }
 }
+
 
 walker get_all_sessions {
     obj __specs__ {

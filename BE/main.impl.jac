@@ -13,8 +13,8 @@ def _ensure_dir(path_str: str) {
     }
 }
 
-def _make_safe_repo_name(url: str) -> str {
-    safe = url.replace("https://", "");
+def _make_safe_repo_name(url_or_name: str) -> str {
+    safe = url_or_name.replace("https://", "");
     safe = safe.replace("http://", "");
     safe = safe.replace("github.com/", "");
     safe = safe.replace("/", "_");
@@ -33,18 +33,23 @@ impl RepoMapper.clone_repo {
         git_dir = os.path.join(repo_path, ".git");
         if os.path.exists(git_dir) {
             self.last_repo_url = url;
+            self.last_repo_path = repo_path;
+            self.last_summary = "Reused existing clone at " + repo_path;
             return repo_path;
         }
     }
 
     try {
         Repo.clone_from(url, repo_path);
+        self.last_summary = "Cloned repository to " + repo_path;
     } except Exception as e {
         print("Error cloning repo:", e);
         _ensure_dir(repo_path);
+        self.last_summary = "Failed to clone repository; created empty directory at " + repo_path;
     }
 
     self.last_repo_url = url;
+    self.last_repo_path = repo_path;
     return repo_path;
 }
 
@@ -67,24 +72,37 @@ impl RepoMapper.build_file_index {
         }
     }
 
+    self.last_index = file_paths;
     self.last_summary = "Indexed " + str(len(file_paths)) + " code files.";
     return file_paths;
 }
 
 impl CodeAnalyzer.analyze_file {
     self.last_target = path;
-    return "Analyzed file: " + path;
+    if path not in self.analyzed_files {
+        self.analyzed_files.append(path);
+    }
+    return "Queued basic analysis for file: " + path;
 }
 
 impl DocGenie.save_docs {
     base_dir = "./outputs/docs";
     _ensure_dir(base_dir);
 
-    filename = _make_safe_repo_name(repo_name) + ".md";
+    safe_name = _make_safe_repo_name(repo_name);
+    if not safe_name {
+        safe_name = repo_name;
+    }
+
+    filename = safe_name + ".md";
     out_path = os.path.join(base_dir, filename);
 
-    with open(out_path, "w") as f {
-        f.write(content);
+    try {
+        with open(out_path, "w") as f {
+            f.write(content);
+        }
+    } except Exception as e {
+        print("Error writing documentation file:", e);
     }
 
     self.last_doc_preview = out_path;
@@ -92,16 +110,16 @@ impl DocGenie.save_docs {
 }
 
 sem RoutingNodes.SUPERVISOR =
-    "High-level Code Genius supervisor that coordinates mapping, analysis, and documentation for a repository.";
+    "High-level Code Genius supervisor coordinating mapping, analysis, and documentation for a repository.";
 
 sem RoutingNodes.REPO_MAPPER =
-    "Agent responsible for cloning the repository and building a filtered file tree.";
+    "Agent responsible for cloning the repository, indexing source files, and summarizing the README.";
 
 sem RoutingNodes.CODE_ANALYZER =
-    "Agent responsible for parsing source code and building a Code Context Graph (CCG).";
+    "Agent responsible for analyzing source files and constructing a Code Context Graph of symbols and relationships.";
 
 sem RoutingNodes.DOC_GENIE =
-    "Agent that generates human-readable Markdown documentation and diagrams from analysis.";
+    "Agent that generates human-readable Markdown documentation and diagrams from repository and analysis data.";
 
 sem RoutingNodes.GENERAL_CHAT =
-    "Agent for general questions about the project and explanations in natural language.";
+    "Agent for general questions, explanations, and free-form conversation about the codebase and tooling.";

@@ -1,10 +1,15 @@
 import from byllm.lib { Model }
 
-glob llm = Model(model_name = "gemini/gemini-2.0-flash", verbose = False);
+glob llm = Model(
+    model_name = "gemini/gemini-2.0-flash",
+    verbose = True
+);
 
-def echo_smart(text: str) -> str by llm();
+"""Simple connection test with Gemini via byLLM."""
+def test_connection() -> str by llm();
 
 with entry {
-    result = echo_smart("Say: Jac + byLLM is working.");
-    print(result);
+    print("🚀 Calling Gemini via byLLM...");
+    result = test_connection();
+    print("\n✅ Gemini API test result:\n" + result);
 }
