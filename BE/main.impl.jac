@@ -1,6 +1,7 @@
 include main;
 
 import os;
+import from git { Repo }
 
 def _ensure_dir(path_str: str) {
     try {
@@ -28,7 +29,18 @@ impl RepoMapper.clone_repo {
     safe_name = _make_safe_repo_name(url);
     repo_path = os.path.join(base_dir, safe_name);
 
-    if not os.path.exists(repo_path) {
+    if os.path.exists(repo_path) {
+        git_dir = os.path.join(repo_path, ".git");
+        if os.path.exists(git_dir) {
+            self.last_repo_url = url;
+            return repo_path;
+        }
+    }
+
+    try {
+        Repo.clone_from(url, repo_path);
+    } except Exception as e {
+        print("Error cloning repo:", e);
         _ensure_dir(repo_path);
     }
 
